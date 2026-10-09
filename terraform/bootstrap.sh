@@ -53,8 +53,10 @@ terraform -chdir=bootstrap init -input=false -reconfigure -backend-config=backen
 # Reuse an OIDC provider that already exists in the account (only one is allowed),
 # unless this bootstrap created it.
 create_oidc=true
-if aws iam list-open-id-connect-providers --output text | grep -q 'token.actions.githubusercontent.com' &&
-  ! terraform -chdir=bootstrap state list 2>/dev/null | grep -q '^aws_iam_openid_connect_provider.github'; then
+providers=$(aws iam list-open-id-connect-providers --output text)
+managed=$(terraform -chdir=bootstrap state list 2>/dev/null || true)
+if grep -q 'token.actions.githubusercontent.com' <<<"$providers" &&
+  ! grep -q '^aws_iam_openid_connect_provider.github' <<<"$managed"; then
   create_oidc=false
 fi
 

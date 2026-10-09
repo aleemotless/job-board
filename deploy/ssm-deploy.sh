@@ -111,7 +111,9 @@ public_health_ok() {
   return 1
 }
 
-summary() { [[ -n ${GITHUB_STEP_SUMMARY:-} ]] && echo "$*" >>"$GITHUB_STEP_SUMMARY" || true; }
+summary() {
+  if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then echo "$*" >>"$GITHUB_STEP_SUMMARY"; fi
+}
 
 wait_for_agent
 case $MODE in
