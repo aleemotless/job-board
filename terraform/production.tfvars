@@ -5,6 +5,10 @@
 aws_region        = "us-east-1"
 github_repository = "aleemotless/job-board"
 
+# This repo's GitHub OIDC tokens use the immutable subject format (owner/repo IDs).
+# Must match: gh api repos/aleemotless/job-board/actions/oidc/customization/sub --jq .sub_claim_prefix
+github_oidc_subject_prefix = "repo:aleemotless@338228696/job-board@1411882371"
+
 # app_name      = "job-board"   # if changed, also update APP_NAME in deploy.yml
 # deploy_branch = "main"
 # instance_type = "t3.small"

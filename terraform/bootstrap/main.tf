@@ -40,6 +40,12 @@ variable "github_repository" {
   type        = string
 }
 
+variable "github_oidc_subject_prefix" {
+  description = "OIDC \"sub\" prefix; empty means \"repo:<owner>/<repo>\" (see ../variables.tf)."
+  type        = string
+  default     = ""
+}
+
 variable "deploy_branch" {
   type    = string
   default = "main"
@@ -55,12 +61,13 @@ data "aws_partition" "current" {}
 data "aws_caller_identity" "current" {}
 
 locals {
-  oidc_host    = "token.actions.githubusercontent.com"
-  iam_prefix   = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}"
-  oidc_arn     = var.create_github_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : data.aws_iam_openid_connect_provider.github[0].arn
-  role_name    = "${var.app_name}-github-terraform"
-  role_arn     = "${local.iam_prefix}:role/${local.role_name}"
-  state_bucket = "${var.app_name}-tfstate-${data.aws_caller_identity.current.account_id}-${var.aws_region}"
+  oidc_host      = "token.actions.githubusercontent.com"
+  iam_prefix     = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}"
+  oidc_arn       = var.create_github_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : data.aws_iam_openid_connect_provider.github[0].arn
+  role_name      = "${var.app_name}-github-terraform"
+  role_arn       = "${local.iam_prefix}:role/${local.role_name}"
+  state_bucket   = "${var.app_name}-tfstate-${data.aws_caller_identity.current.account_id}-${var.aws_region}"
+  subject_prefix = var.github_oidc_subject_prefix != "" ? var.github_oidc_subject_prefix : "repo:${var.github_repository}"
 }
 
 resource "aws_iam_openid_connect_provider" "github" {
@@ -95,7 +102,7 @@ data "aws_iam_policy_document" "trust" {
     condition {
       test     = "StringEquals"
       variable = "${local.oidc_host}:sub"
-      values   = ["repo:${var.github_repository}:ref:refs/heads/${var.deploy_branch}"]
+      values   = ["${local.subject_prefix}:ref:refs/heads/${var.deploy_branch}"]
     }
   }
 }

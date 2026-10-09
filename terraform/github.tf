@@ -2,7 +2,8 @@
 
 # The OIDC provider is created once by bootstrap/ (see ../DEPLOYMENT.md).
 locals {
-  github_oidc_url = "token.actions.githubusercontent.com"
+  github_oidc_url       = "token.actions.githubusercontent.com"
+  github_subject_prefix = var.github_oidc_subject_prefix != "" ? var.github_oidc_subject_prefix : "repo:${var.github_repository}"
 }
 
 data "aws_iam_openid_connect_provider" "github" {
@@ -31,7 +32,7 @@ data "aws_iam_policy_document" "github_deploy_trust" {
     condition {
       test     = "StringEquals"
       variable = "${local.github_oidc_url}:sub"
-      values   = ["repo:${var.github_repository}:ref:refs/heads/${var.deploy_branch}"]
+      values   = ["${local.github_subject_prefix}:ref:refs/heads/${var.deploy_branch}"]
     }
   }
 }

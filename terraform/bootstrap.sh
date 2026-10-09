@@ -18,9 +18,25 @@ APP_NAME=$(tfvar app_name)
 APP_NAME=${APP_NAME:-job-board}
 [[ -n $REGION && -n $REPO ]] || { echo "Set aws_region and github_repository in production.tfvars" >&2; exit 1; }
 
+# The role trust must match the "sub" claim GitHub puts in this repo's OIDC tokens,
+# which is either classic (repo:owner/name) or immutable (repo:owner@id/name@id).
+SUBJECT_PREFIX=$(tfvar github_oidc_subject_prefix)
+SUBJECT_PREFIX=${SUBJECT_PREFIX:-repo:${REPO}}
+if command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then
+  actual=$(gh api "repos/${REPO}/actions/oidc/customization/sub" --jq '.sub_claim_prefix // empty' 2>/dev/null || true)
+  actual=${actual:-repo:${REPO}}
+  if [[ $actual != "$SUBJECT_PREFIX" ]]; then
+    echo "GitHub issues OIDC tokens for ${REPO} with subject prefix:" >&2
+    echo "  ${actual}" >&2
+    echo "Set this in terraform/production.tfvars, then re-run:" >&2
+    echo "  github_oidc_subject_prefix = \"${actual}\"" >&2
+    exit 1
+  fi
+fi
+
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 BUCKET="${APP_NAME}-tfstate-${ACCOUNT_ID}-${REGION}"
-echo "Account ${ACCOUNT_ID}, region ${REGION}, repository ${REPO}"
+echo "Account ${ACCOUNT_ID}, region ${REGION}, repository ${REPO} (OIDC subject ${SUBJECT_PREFIX})"
 
 # --- 1. State bucket ----------------------------------------------------------
 if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
@@ -62,6 +78,7 @@ fi
 
 terraform -chdir=bootstrap apply \
   -var "aws_region=${REGION}" -var "app_name=${APP_NAME}" -var "github_repository=${REPO}" \
+  -var "github_oidc_subject_prefix=${SUBJECT_PREFIX}" \
   -var "create_github_oidc_provider=${create_oidc}"
 ROLE_ARN=$(terraform -chdir=bootstrap output -raw terraform_role_arn)
 

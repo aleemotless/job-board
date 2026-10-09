@@ -25,6 +25,16 @@ variable "github_repository" {
   }
 }
 
+variable "github_oidc_subject_prefix" {
+  description = <<-EOT
+    Prefix of the "sub" claim in this repository's GitHub OIDC tokens. Empty means the
+    classic "repo:<owner>/<repo>". Repositories using GitHub's immutable subject format
+    need "repo:<owner>@<owner-id>/<repo>@<repo-id>"; terraform/bootstrap.sh detects it.
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "deploy_branch" {
   description = "Only workflows running on this branch can assume the deploy role."
   type        = string

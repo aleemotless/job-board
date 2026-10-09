@@ -54,3 +54,17 @@ run "reuses_existing_oidc_provider" {
     error_message = "Must not create a second OIDC provider."
   }
 }
+
+run "immutable_subject_prefix" {
+  command = plan
+
+  variables {
+    github_oidc_subject_prefix = "repo:aleemotless@338228696/job-board@1411882371"
+  }
+
+  assert {
+    condition = anytrue([for c in data.aws_iam_policy_document.trust.statement[0].condition :
+    c.variable == "token.actions.githubusercontent.com:sub" && c.values == tolist(["repo:aleemotless@338228696/job-board@1411882371:ref:refs/heads/main"])])
+    error_message = "Trust must use the configured subject prefix."
+  }
+}
