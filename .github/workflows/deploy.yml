@@ -1,0 +1,214 @@
+name: Deploy
+
+# Every push to main: checks -> Terraform plan (apply only if something changed)
+# -> build & push image -> blue/green release on EC2 -> public health check.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "deploy: converge infrastructure, build (or reuse) and release; rollback: switch back to the previous release"
+        type: choice
+        options: [deploy, rollback]
+        default: deploy
+      image_tag:
+        description: "Optional: redeploy an existing image tag (a git SHA) instead of building this commit"
+        type: string
+        required: false
+      replace_instance:
+        description: "Replace the EC2 instance (picks up the latest Amazon Linux AMI), then deploy onto the new one"
+        type: boolean
+        default: false
+
+# One production run at a time (Terraform state and the release switch); a newer
+# push waits instead of interrupting an apply or a release mid-switch.
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  APP_NAME: job-board # must match app_name in terraform/production.tfvars
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  DEPLOY_CONFIG_PARAMETER: /job-board/deploy-config
+
+jobs:
+  checks:
+    if: github.event_name == 'push' || (inputs.action == 'deploy' && inputs.image_tag == '')
+    uses: ./.github/workflows/ci.yml
+
+  infrastructure:
+    name: Terraform plan & apply
+    needs: checks
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/main'
+      && (needs.checks.result == 'success' || needs.checks.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write # OIDC token for AWS
+    defaults:
+      run:
+        working-directory: terraform
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+    outputs:
+      deploy_role_arn: ${{ steps.outputs.outputs.deploy_role_arn }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check repository configuration
+        env:
+          AWS_TERRAFORM_ROLE_ARN: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+        run: |
+          if [[ -z $AWS_REGION || -z $AWS_TERRAFORM_ROLE_ARN ]]; then
+            echo "::error::Set the AWS_REGION and AWS_TERRAFORM_ROLE_ARN repository variables by running terraform/bootstrap.sh once (see DEPLOYMENT.md)."
+            exit 1
+          fi
+          tf_region=$(sed -nE 's/^aws_region[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/p' production.tfvars)
+          if [[ $tf_region != "$AWS_REGION" ]]; then
+            echo "::error::aws_region in production.tfvars (${tf_region}) differs from the AWS_REGION variable (${AWS_REGION}). Moving regions needs a new bootstrap; see DEPLOYMENT.md."
+            exit 1
+          fi
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Init (state bucket created by bootstrap.sh)
+        run: |
+          account=$(aws sts get-caller-identity --query Account --output text)
+          terraform init \
+            -backend-config="bucket=${APP_NAME}-tfstate-${account}-${AWS_REGION}" \
+            -backend-config="key=${APP_NAME}/production.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+      - name: Plan
+        id: plan
+        if: inputs.action != 'rollback'
+        env:
+          REPLACE: ${{ inputs.replace_instance && '-replace=aws_instance.app' || '' }}
+        run: |
+          set +e
+          # shellcheck disable=SC2086 # REPLACE is empty or a single flag
+          terraform plan $REPLACE -var-file=production.tfvars -lock-timeout=5m -detailed-exitcode -no-color -out=tfplan >plan.txt 2>&1
+          code=$?
+          set -e
+          cat plan.txt
+          if [[ $code == 1 ]]; then echo "::error::terraform plan failed"; exit 1; fi
+          if [[ $code == 2 ]]; then
+            echo "changes=true" >>"$GITHUB_OUTPUT"
+            {
+              echo "### Terraform: applying infrastructure changes"
+              echo '```'
+              grep -E '^  # |^Plan:' plan.txt | head -100
+              echo '```'
+            } >>"$GITHUB_STEP_SUMMARY"
+          else
+            echo "changes=false" >>"$GITHUB_OUTPUT"
+            echo "### Terraform: no infrastructure changes" >>"$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Apply
+        if: steps.plan.outputs.changes == 'true'
+        run: terraform apply -lock-timeout=5m tfplan
+      - name: Read outputs
+        id: outputs
+        run: echo "deploy_role_arn=$(terraform output -raw github_deploy_role_arn)" >>"$GITHUB_OUTPUT"
+
+  image:
+    name: Build & push image
+    needs: infrastructure
+    if: >-
+      !cancelled() && needs.infrastructure.result == 'success' && inputs.action != 'rollback'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Least-privilege deploy role (ECR push + SSM on the instance), created by Terraform.
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ needs.infrastructure.outputs.deploy_role_arn }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Resolve image
+        id: meta
+        env:
+          REQUESTED_TAG: ${{ inputs.image_tag }}
+        run: |
+          repo_url=$(aws ssm get-parameter --name "$DEPLOY_CONFIG_PARAMETER" \
+            --query Parameter.Value --output text | jq -r .ecr_repository_url)
+          version=${REQUESTED_TAG:-$GITHUB_SHA}
+          if aws ecr describe-images --repository-name "${repo_url#*/}" \
+              --image-ids "imageTag=${version}" >/dev/null 2>&1; then
+            exists=true
+          elif [[ -n $REQUESTED_TAG ]]; then
+            echo "::error::Image tag ${REQUESTED_TAG} does not exist in ${repo_url}"
+            exit 1
+          else
+            exists=false
+          fi
+          echo "Image ${repo_url}:${version} (already in ECR: ${exists})"
+          {
+            echo "image=${repo_url}:${version}"
+            echo "version=${version}"
+            echo "exists=${exists}"
+          } >>"$GITHUB_OUTPUT"
+      - if: steps.meta.outputs.exists == 'false'
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      - if: steps.meta.outputs.exists == 'false'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - if: steps.meta.outputs.exists == 'false'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          tags: ${{ steps.meta.outputs.image }}
+          build-args: APP_VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to EC2
+    needs: [infrastructure, image]
+    if: >-
+      !cancelled() && needs.infrastructure.result == 'success'
+      && (needs.image.result == 'success' || (inputs.action == 'rollback' && needs.image.result == 'skipped'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ needs.infrastructure.outputs.deploy_role_arn }}
+          aws-region: ${{ env.AWS_REGION }}
+      # On a freshly created/replaced instance this waits for the SSM agent and
+      # first-boot setup before releasing.
+      - name: Release and verify
+        env:
+          ACTION: ${{ inputs.action || 'deploy' }}
+          IMAGE: ${{ needs.image.outputs.image }}
+          VERSION: ${{ needs.image.outputs.version }}
+        run: |
+          if [[ $ACTION == rollback ]]; then
+            deploy/ssm-deploy.sh rollback
+          else
+            deploy/ssm-deploy.sh deploy "$IMAGE" "$VERSION"
+          fi

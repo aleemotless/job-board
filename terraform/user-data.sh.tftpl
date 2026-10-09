@@ -1,0 +1,29 @@
+#!/bin/bash
+# First-boot host bootstrap. It only prepares the runtime (Docker, swap,
+# directories); releases are installed by deploy/remote-deploy.sh over SSM.
+set -euxo pipefail
+
+dnf -y upgrade
+dnf -y install docker
+
+mkdir -p /etc/docker
+cat >/etc/docker/daemon.json <<'JSON'
+{
+  "live-restore": true,
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" }
+}
+JSON
+systemctl enable --now docker
+
+# Small safety net so two app containers + docker pull can't OOM a small instance.
+if [ ! -f /swapfile ]; then
+  dd if=/dev/zero of=/swapfile bs=1M count=1024
+  chmod 600 /swapfile
+  mkswap /swapfile
+  echo '/swapfile none swap sw 0 0' >>/etc/fstab
+fi
+swapon -a
+
+install -d -m 700 /etc/${app_name}
+install -d -m 755 /etc/${app_name}/caddy /var/lib/${app_name}
