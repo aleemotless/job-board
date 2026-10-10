@@ -30,7 +30,7 @@ Nobody needs SSH, and nobody configures the server by hand. The only manual step
 | `.nvmrc` | Node major version for CI. The `Dockerfile`'s `NODE_VERSION` should match it. |
 | `deploy/ssm-deploy.sh` | Runs in GitHub Actions. Sends the release to the instance via SSM, waits, checks the public URL, and triggers a rollback if the check fails. |
 | `deploy/remote-deploy.sh` | Runs on the instance. Does the blue/green switch and the rollback. It is sent with every deploy, so changes take effect without touching the instance. |
-| `terraform/` | VPC, security group, EC2, Elastic IP, IAM, GitHub OIDC, ECR, CloudWatch Logs, SSM parameters, and an optional Route 53 record. |
+| `terraform/` | VPC, security group, EC2, Elastic IP, IAM, GitHub OIDC, ECR, CloudWatch Logs, SSM parameters, and an optional Route 53 hosted zone and records. |
 | `terraform/production.tfvars` | Production settings (region, repository, instance size, optional domain). Committed and contains no secrets, so infrastructure changes are reviewed in PRs. |
 | `terraform/bootstrap.sh`, `terraform/bootstrap/` | One-time bootstrap: creates the state bucket, the GitHub OIDC provider and the role the pipeline uses for Terraform, and sets the GitHub variables. |
 | `terraform/tests/`, `terraform/bootstrap/tests/` | Offline `terraform test` checks that use a mocked AWS provider. |
@@ -130,11 +130,36 @@ gh workflow run deploy.yml --ref main
 
 ## HTTPS and a custom domain *(optional)*
 
-Set `domain_name` (and `acme_email`) in `terraform/production.tfvars`.
-- If the zone is in Route 53, also set `route53_zone_id` and Terraform creates the A record.
-- Otherwise, create an A record for the domain pointing at `terraform output -raw public_ip`.
+This is configured for `limitlezz.online`, which is registered at GoDaddy and was on Cloudflare DNS. It's done in two merges, because Let's Encrypt only issues a certificate once the domain resolves to the server.
 
-Merge the change. The pipeline applies it and redeploys. Caddy gets a Let's Encrypt certificate automatically, redirects HTTP to HTTPS, and renews the certificate. Certificates are kept in the `job-board-caddy-data` Docker volume. The first deploy after a domain change can fail the public check until DNS resolves to the instance. Just re-run it.
+**1. DNS in Route 53.** Already set in `production.tfvars`:
+```hcl
+route53_zone_name = "limitlezz.online"
+dns_names         = ["limitlezz.online", "www.limitlezz.online"]
+```
+Merging this creates the hosted zone, A records for the apex and `www` pointing at the Elastic IP, and a CAA record that allows only Let's Encrypt/ZeroSSL. The site keeps serving plain HTTP. The Deploy run summary lists the four **Route 53 nameservers**. They also appear in the `route53_name_servers` output.
+
+**2. Delegate the domain** *(manual, at the registrar)*. In GoDaddy, go to **My Products → limitlezz.online → DNS → Nameservers → Change → "I'll use my own nameservers"**. Replace the Cloudflare nameservers with the four Route 53 ones.
+
+From then on, Route 53 answers for the domain. Anything still configured in the Cloudflare zone stops working, including its proxy and records. To check propagation (usually minutes, at most 48 hours):
+
+```bash
+dig +short NS limitlezz.online @8.8.8.8      # the four awsdns-* servers
+dig +short A limitlezz.online @8.8.8.8       # the Elastic IP
+dig +short A www.limitlezz.online @1.1.1.1   # the Elastic IP
+```
+
+Once delegated, `http://limitlezz.online` already reaches the app.
+
+**3. Turn on HTTPS.** Uncomment `domain_name` and `domain_aliases` (and optionally `acme_email`) in `production.tfvars` and merge.
+- Caddy obtains certificates for both names and redirects HTTP to HTTPS.
+- `www` redirects permanently to `https://limitlezz.online`.
+- HTTP/3 (UDP 443) is opened.
+- The pipeline's health check moves to `https://limitlezz.online`.
+
+If you do step 3 before DNS points at the server, the deploy fails its public check and rolls back. Re-run it once DNS resolves.
+
+For a domain whose zone is managed elsewhere in Route 53, set `route53_zone_id` instead of `route53_zone_name`. If DNS isn't in Route 53 at all, leave both empty and create the A records at your DNS provider. Certificates are kept in the `job-board-caddy-data` Docker volume, so redeploys don't request new ones.
 
 ## Verifying and inspecting
 
@@ -240,8 +265,9 @@ When destroying the bootstrap stack, pass `-var create_github_oidc_provider=fals
 | EC2 `t3.small` (24×7) | 15 |
 | 20 GiB gp3 | 1.60 |
 | Public IPv4 (Elastic IP) | 3.60 |
+| Route 53 hosted zone (+ queries) | 0.50 |
 | ECR storage (≤15 images × ~100 MB), CloudWatch Logs, SSM | < 1 |
-| **Total** | **≈ $21** |
+| **Total** | **≈ $21.50** |
 
 Other notes:
 - There's no NAT gateway, load balancer or KMS key.

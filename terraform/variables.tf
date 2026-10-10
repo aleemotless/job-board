@@ -89,15 +89,33 @@ variable "ssh_key_name" {
 }
 
 variable "domain_name" {
-  description = "Optional domain (e.g. jobs.example.com). When set, Caddy obtains a Let's Encrypt certificate and serves HTTPS."
+  description = "Hostname to serve over HTTPS (e.g. example.com). Caddy obtains a Let's Encrypt certificate, so DNS must already point at the Elastic IP. Empty: plain HTTP on the IP."
+  type        = string
+  default     = ""
+}
+
+variable "domain_aliases" {
+  description = "Extra hostnames (e.g. www.example.com) that permanently redirect to domain_name over HTTPS."
+  type        = list(string)
+  default     = []
+}
+
+variable "route53_zone_name" {
+  description = "Create a public Route 53 hosted zone with this name (e.g. example.com). Then delegate the domain to the name_servers output at your registrar."
   type        = string
   default     = ""
 }
 
 variable "route53_zone_id" {
-  description = "Optional Route 53 hosted zone ID; when set with domain_name, an A record is created. Otherwise point DNS at the public IP yourself."
+  description = "Use an existing Route 53 hosted zone instead of creating one."
   type        = string
   default     = ""
+}
+
+variable "dns_names" {
+  description = "Hostnames that get an A record pointing at the Elastic IP, in the zone above (e.g. [\"example.com\", \"www.example.com\"])."
+  type        = list(string)
+  default     = []
 }
 
 variable "acme_email" {

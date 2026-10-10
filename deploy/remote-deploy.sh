@@ -11,12 +11,13 @@
 # release is untouched.
 #
 # Configuration comes from the environment (set by deploy/ssm-deploy.sh):
-#   APP_NAME, SITE_ADDRESS, ACME_EMAIL, LOG_GROUP, ENV_PARAMETER_PATH,
-#   AWS_REGION, CADDY_IMAGE
+#   APP_NAME, SITE_ADDRESS, REDIRECT_HOSTS, ACME_EMAIL, LOG_GROUP,
+#   ENV_PARAMETER_PATH, AWS_REGION, CADDY_IMAGE
 set -Eeuo pipefail
 
 : "${APP_NAME:?}" "${SITE_ADDRESS:?}" "${LOG_GROUP:?}" "${ENV_PARAMETER_PATH:?}" "${AWS_REGION:?}"
 ACME_EMAIL="${ACME_EMAIL:-}"
+REDIRECT_HOSTS="${REDIRECT_HOSTS:-}" # space-separated; each redirects to SITE_ADDRESS
 CADDY_IMAGE="${CADDY_IMAGE:-caddy:2.11-alpine}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-90}"
 DRAIN_SECONDS="${DRAIN_SECONDS:-5}"
@@ -131,6 +132,10 @@ ${SITE_ADDRESS} {
 	}
 }
 EOF
+    local host
+    for host in $REDIRECT_HOSTS; do
+      printf '\n%s {\n\tredir https://%s{uri} permanent\n}\n' "$host" "$SITE_ADDRESS"
+    done
   } >"$tmp"
   chmod 644 "$tmp"
   mv "$tmp" "${CADDY_DIR}/Caddyfile"

@@ -47,6 +47,7 @@ run_remote() {
   local env_exports script_b64 params command_id status deadline
   env_exports=""
   for kv in "APP_NAME=$(cfg app_name)" "SITE_ADDRESS=$(cfg site_address)" \
+    "REDIRECT_HOSTS=$(cfg redirect_hosts)" \
     "ACME_EMAIL=$(cfg acme_email)" "LOG_GROUP=${LOG_GROUP}" \
     "ENV_PARAMETER_PATH=$(cfg env_parameter_path)" "AWS_REGION=${AWS_REGION}" \
     "CADDY_IMAGE=$(cfg caddy_image)"; do
