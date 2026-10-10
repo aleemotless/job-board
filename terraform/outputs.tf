@@ -47,3 +47,8 @@ output "aws_region" {
   description = "Region of the stack."
   value       = var.aws_region
 }
+
+output "route53_name_servers" {
+  description = "Set these as the domain's nameservers at your registrar (only when route53_zone_name is set)."
+  value       = local.create_zone ? aws_route53_zone.main[0].name_servers : null
+}

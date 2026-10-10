@@ -18,20 +18,11 @@ resource "aws_ssm_parameter" "deploy_config" {
     public_ip          = aws_eip.app.public_ip
     app_url            = local.app_url
     site_address       = local.site_address
+    redirect_hosts     = join(" ", var.domain_aliases)
     acme_email         = var.acme_email
     ecr_repository_url = aws_ecr_repository.app.repository_url
     log_group          = aws_cloudwatch_log_group.app.name
     env_parameter_path = local.env_parameter_path
     caddy_image        = var.caddy_image
   })
-}
-
-resource "aws_route53_record" "app" {
-  count = local.https && var.route53_zone_id != "" ? 1 : 0
-
-  zone_id = var.route53_zone_id
-  name    = var.domain_name
-  type    = "A"
-  ttl     = 300
-  records = [aws_eip.app.public_ip]
 }

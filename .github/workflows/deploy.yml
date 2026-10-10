@@ -121,7 +121,18 @@ jobs:
         run: terraform apply -lock-timeout=5m tfplan
       - name: Read outputs
         id: outputs
-        run: echo "deploy_role_arn=$(terraform output -raw github_deploy_role_arn)" >>"$GITHUB_OUTPUT"
+        run: |
+          echo "deploy_role_arn=$(terraform output -raw github_deploy_role_arn)" >>"$GITHUB_OUTPUT"
+          name_servers=$( (terraform output -json route53_name_servers 2>/dev/null || echo null) | jq -r '(. // [])[]')
+          if [[ -n $name_servers ]]; then
+            {
+              echo "### Route 53 nameservers"
+              echo "Set these as the domain's nameservers at your registrar:"
+              echo '```'
+              echo "$name_servers"
+              echo '```'
+            } >>"$GITHUB_STEP_SUMMARY"
+          fi
 
   image:
     name: Build & push image

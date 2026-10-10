@@ -59,7 +59,7 @@ run "defaults_http_only_no_ssh" {
     error_message = "Deploy config should tell Caddy to serve plain HTTP."
   }
   assert {
-    condition     = length(aws_route53_record.app) == 0
+    condition     = length(aws_route53_zone.main) == 0 && length(aws_route53_record.app) == 0
     error_message = "Optional resources must be off by default."
   }
   assert {
@@ -68,21 +68,54 @@ run "defaults_http_only_no_ssh" {
   }
 }
 
-run "domain_https" {
+run "route53_zone_dns_only" {
+  command = apply
+
+  # Phase 1: zone and records exist, but the app still serves plain HTTP.
+  variables {
+    route53_zone_name = "limitlezz.online"
+    dns_names         = ["limitlezz.online", "www.limitlezz.online"]
+  }
+
+  assert {
+    condition     = length(aws_route53_zone.main) == 1 && length(aws_route53_record.caa) == 1
+    error_message = "Zone and CAA record expected."
+  }
+  assert {
+    condition     = toset(keys(aws_route53_record.app)) == toset(["limitlezz.online", "www.limitlezz.online"])
+    error_message = "A records expected for apex and www."
+  }
+  assert {
+    condition     = alltrue([for r in aws_route53_record.app : r.records == toset(["198.51.100.7"])])
+    error_message = "Records must point at the Elastic IP."
+  }
+  assert {
+    condition     = output.app_url == "http://198.51.100.7" && jsondecode(aws_ssm_parameter.deploy_config.value).site_address == ":80"
+    error_message = "HTTPS must stay off until domain_name is set."
+  }
+}
+
+run "domain_https_with_www_redirect" {
   command = apply
 
   variables {
-    domain_name     = "jobs.example.com"
-    route53_zone_id = "Z0123456789"
+    route53_zone_name = "limitlezz.online"
+    dns_names         = ["limitlezz.online", "www.limitlezz.online"]
+    domain_name       = "limitlezz.online"
+    domain_aliases    = ["www.limitlezz.online"]
   }
 
   assert {
-    condition     = output.app_url == "https://jobs.example.com"
+    condition     = output.app_url == "https://limitlezz.online"
     error_message = "With a domain the app URL should be HTTPS."
   }
   assert {
-    condition     = length(aws_route53_record.app) == 1 && length(aws_vpc_security_group_ingress_rule.quic) == 1
-    error_message = "Route 53 record and QUIC rule expected with a domain."
+    condition     = jsondecode(aws_ssm_parameter.deploy_config.value).redirect_hosts == "www.limitlezz.online"
+    error_message = "www should be passed to Caddy as a redirect host."
+  }
+  assert {
+    condition     = length(aws_vpc_security_group_ingress_rule.quic) == 1
+    error_message = "QUIC rule expected with a domain."
   }
 }
 
