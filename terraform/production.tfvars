@@ -13,17 +13,14 @@ github_oidc_subject_prefix = "repo:aleemotless@338228696/job-board@1411882371"
 # deploy_branch = "main"
 # instance_type = "t3.small"
 
-# DNS: Route 53 hosts limitlezz.online; apex and www point at the Elastic IP.
-# After the first apply, set the domain's nameservers at GoDaddy to the
-# route53_name_servers output (see DEPLOYMENT.md -> "HTTPS and a custom domain").
-route53_zone_name = "limitlezz.online"
-dns_names         = ["limitlezz.online", "www.limitlezz.online"]
-
-# HTTPS: uncomment only once `dig +short limitlezz.online` returns the Elastic IP
-# from everywhere; Caddy then obtains Let's Encrypt certificates on the next deploy.
-# domain_name    = "limitlezz.online"
-# domain_aliases = ["www.limitlezz.online"]   # redirects to https://limitlezz.online
-# acme_email     = "you@example.com"          # optional: certificate expiry notices
+# Domain: limitlezz.online stays on Cloudflare DNS, proxied (orange cloud), with
+# the apex and www A records pointing at the Elastic IP. Cloudflare's SSL/TLS mode
+# must be "Full (strict)": Caddy terminates TLS with a Let's Encrypt certificate,
+# obtained via the HTTP-01 challenge through the Cloudflare proxy.
+# Route 53 is not used (route53_zone_name / dns_names stay unset).
+domain_name    = "limitlezz.online"
+domain_aliases = ["www.limitlezz.online"] # redirects to https://limitlezz.online
+# acme_email   = "you@example.com"          # optional: certificate expiry notices
 
 # Emergency SSH (prefer `aws ssm start-session`). Never 0.0.0.0/0.
 # ssh_allowed_cidrs = ["203.0.113.10/32"]
