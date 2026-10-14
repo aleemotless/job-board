@@ -13,14 +13,15 @@ github_oidc_subject_prefix = "repo:aleemotless@338228696/job-board@1411882371"
 # deploy_branch = "main"
 # instance_type = "t3.small"
 
-# Domain: limitlezz.online stays on Cloudflare DNS, proxied (orange cloud), with
-# the apex and www A records pointing at the Elastic IP. Cloudflare's SSL/TLS mode
-# must be "Full (strict)": Caddy terminates TLS with a Let's Encrypt certificate,
-# obtained via the HTTP-01 challenge through the Cloudflare proxy.
+# Domains: limitlezz.online is on Cloudflare DNS, proxied (orange cloud). Only the
+# subdomains below are served; each needs a proxied A record to the Elastic IP.
+# proxy.ts routes admin.* to the admin dashboard and everything else to the user site.
+# Cloudflare's SSL/TLS mode must be "Full (strict)": Caddy terminates TLS with
+# Let's Encrypt certificates, obtained via HTTP-01 through the Cloudflare proxy.
 # Route 53 is not used (route53_zone_name / dns_names stay unset).
-domain_name    = "limitlezz.online"
-domain_aliases = ["www.limitlezz.online"] # redirects to https://limitlezz.online
-# acme_email   = "you@example.com"          # optional: certificate expiry notices
+domain_name        = "joblezz.limitlezz.online" # user site; the pipeline's health check URL
+extra_domain_names = ["admin.limitlezz.online"]
+# acme_email       = "you@example.com"         # optional: certificate expiry notices
 
 # Emergency SSH (prefer `aws ssm start-session`). Never 0.0.0.0/0.
 # ssh_allowed_cidrs = ["203.0.113.10/32"]

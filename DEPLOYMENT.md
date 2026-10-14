@@ -130,30 +130,36 @@ gh workflow run deploy.yml --ref main
 
 ## HTTPS and a custom domain *(optional)*
 
-This is configured for `limitlezz.online`, which is registered at GoDaddy and uses Cloudflare for DNS and as a proxy (orange cloud). Visitors connect to Cloudflare, and Cloudflare connects to Caddy on the instance over HTTPS. Caddy holds its own Let's Encrypt certificate.
+This is configured for two subdomains of `limitlezz.online`, which is registered at GoDaddy and uses Cloudflare for DNS and as a proxy (orange cloud). Visitors connect to Cloudflare, and Cloudflare connects to Caddy on the instance over HTTPS. Caddy holds its own Let's Encrypt certificates. The bare `limitlezz.online` isn't served.
 
-**1. DNS in Cloudflare** *(manual)*. In the Cloudflare zone, create proxied `A` records for `limitlezz.online` and `www` that point at the Elastic IP (the `public_ip` output).
+| Host | Serves |
+|---|---|
+| `joblezz.limitlezz.online` | the user site (`app/*`) |
+| `admin.limitlezz.online` | the admin dashboard (`app/admin/*`); `proxy.ts` rewrites by `Host` header |
+
+**1. DNS in Cloudflare** *(manual)*. In the Cloudflare zone, create proxied `A` records for `joblezz` and `admin` that point at the Elastic IP (the `public_ip` output).
 
 **2. Turn on HTTPS on the server.** Set these in `production.tfvars` and merge (already done):
 ```hcl
-domain_name    = "limitlezz.online"
-domain_aliases = ["www.limitlezz.online"]   # redirects to https://limitlezz.online
-# acme_email   = "you@example.com"          # optional: certificate expiry notices
+domain_name        = "joblezz.limitlezz.online" # user site; the pipeline's health check URL
+extra_domain_names = ["admin.limitlezz.online"]
+# acme_email       = "you@example.com"         # optional: certificate expiry notices
 ```
-- Caddy obtains certificates for both names with the HTTP-01 challenge, which passes through the Cloudflare proxy on port 80.
-- Caddy redirects HTTP to HTTPS, and `www` redirects permanently to `https://limitlezz.online`.
+- Caddy obtains a certificate for each host with the HTTP-01 challenge, which passes through the Cloudflare proxy on port 80, and redirects HTTP to HTTPS.
+- Any other host that reaches the server gets no response.
 - HTTP/3 (UDP 443) is opened on the security group.
-- The pipeline's health check moves to `https://limitlezz.online`. It connects to the Elastic IP directly (`curl --resolve`), so it checks Caddy's certificate, not Cloudflare's.
+- The pipeline's health check moves to `https://joblezz.limitlezz.online`. It connects to the Elastic IP directly (`curl --resolve`), so it checks Caddy's certificate, not Cloudflare's.
+- `domain_aliases` can still add hostnames that permanently redirect to `domain_name`.
 
 **3. Set Cloudflare to Full (strict)** *(manual)*. Under **SSL/TLS → Overview**, choose **Full (strict)** once the deploy has passed.
 - Never use **Flexible**. Cloudflare would request plain HTTP, Caddy would redirect it to HTTPS, and the browser would loop forever.
-- If the first certificate fails to issue, check the `proxy` log stream. Make sure no Cloudflare rule blocks or redirects `/.well-known/acme-challenge/*` on HTTP. Caddy retries on its own.
+- If a certificate fails to issue, check the `proxy` log stream. Make sure no Cloudflare rule blocks or redirects `/.well-known/acme-challenge/*` on HTTP. Caddy retries on its own.
 
 Certificates are kept in the `job-board-caddy-data` Docker volume, so redeploys don't request new ones.
 
 The origin still accepts traffic from any IP (`allowed_http_cidrs` defaults to `0.0.0.0/0`), so the Elastic IP can be reached without going through Cloudflare. Restricting it to [Cloudflare's IP ranges](https://www.cloudflare.com/ips/) would also block the pipeline's direct health check from GitHub runners.
 
-**Alternative: DNS in Route 53.** To move DNS off Cloudflare, set `route53_zone_name` and `dns_names` instead. Terraform creates the hosted zone, the A records, and a CAA record that allows only Let's Encrypt/ZeroSSL. The Deploy run summary lists the four nameservers to set at the registrar. Turn on `domain_name` only after `dig +short A limitlezz.online @8.8.8.8` returns the Elastic IP. For a zone managed elsewhere in Route 53, set `route53_zone_id` instead.
+**Alternative: DNS in Route 53.** To move DNS off Cloudflare, set `route53_zone_name` and `dns_names` instead. Terraform creates the hosted zone, the A records, and a CAA record that allows only Let's Encrypt/ZeroSSL. The Deploy run summary lists the four nameservers to set at the registrar. Turn on `domain_name` only after `dig +short A <host> @8.8.8.8` returns the Elastic IP. For a zone managed elsewhere in Route 53, set `route53_zone_id` instead.
 
 ## Verifying and inspecting
 
