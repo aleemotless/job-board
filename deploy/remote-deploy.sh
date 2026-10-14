@@ -17,7 +17,7 @@ set -Eeuo pipefail
 
 : "${APP_NAME:?}" "${SITE_ADDRESS:?}" "${LOG_GROUP:?}" "${ENV_PARAMETER_PATH:?}" "${AWS_REGION:?}"
 ACME_EMAIL="${ACME_EMAIL:-}"
-REDIRECT_HOSTS="${REDIRECT_HOSTS:-}" # space-separated; each redirects to SITE_ADDRESS
+REDIRECT_HOSTS="${REDIRECT_HOSTS:-}" # space-separated; each redirects to the first SITE_ADDRESS host
 CADDY_IMAGE="${CADDY_IMAGE:-caddy:2.11-alpine}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-90}"
 DRAIN_SECONDS="${DRAIN_SECONDS:-5}"
@@ -134,7 +134,7 @@ ${SITE_ADDRESS} {
 EOF
     local host
     for host in $REDIRECT_HOSTS; do
-      printf '\n%s {\n\tredir https://%s{uri} permanent\n}\n' "$host" "$SITE_ADDRESS"
+      printf '\n%s {\n\tredir https://%s{uri} permanent\n}\n' "$host" "${SITE_ADDRESS%%,*}"
     done
   } >"$tmp"
   chmod 644 "$tmp"

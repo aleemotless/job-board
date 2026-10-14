@@ -119,6 +119,24 @@ run "domain_https_with_www_redirect" {
   }
 }
 
+run "domain_https_with_extra_hosts" {
+  command = apply
+
+  variables {
+    domain_name        = "joblezz.limitlezz.online"
+    extra_domain_names = ["admin.limitlezz.online"]
+  }
+
+  assert {
+    condition     = output.app_url == "https://joblezz.limitlezz.online"
+    error_message = "The app URL should use domain_name, not the extra hosts."
+  }
+  assert {
+    condition     = jsondecode(aws_ssm_parameter.deploy_config.value).site_address == "joblezz.limitlezz.online, admin.limitlezz.online"
+    error_message = "Caddy should serve domain_name and every extra host."
+  }
+}
+
 run "rejects_world_open_ssh" {
   command = plan
 

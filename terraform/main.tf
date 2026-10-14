@@ -1,6 +1,6 @@
 locals {
   https                    = var.domain_name != ""
-  site_address             = local.https ? var.domain_name : ":80"
+  site_address             = local.https ? join(", ", concat([var.domain_name], var.extra_domain_names)) : ":80"
   app_url                  = local.https ? "https://${var.domain_name}" : "http://${aws_eip.app.public_ip}"
   env_parameter_path       = "/${var.app_name}/env"
   deploy_config_parameter  = "/${var.app_name}/deploy-config"

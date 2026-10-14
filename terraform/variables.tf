@@ -94,6 +94,12 @@ variable "domain_name" {
   default     = ""
 }
 
+variable "extra_domain_names" {
+  description = "More hostnames (e.g. admin.example.com) served by the app over HTTPS alongside domain_name, each with its own certificate. The app tells them apart by Host header (see proxy.ts)."
+  type        = list(string)
+  default     = []
+}
+
 variable "domain_aliases" {
   description = "Extra hostnames (e.g. www.example.com) that permanently redirect to domain_name over HTTPS."
   type        = list(string)
