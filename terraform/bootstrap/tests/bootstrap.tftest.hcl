@@ -40,6 +40,38 @@ run "trusts_only_main_and_cannot_modify_itself" {
     condition     = length(aws_iam_openid_connect_provider.github) == 1
     error_message = "Creates the OIDC provider by default."
   }
+  assert {
+    condition = anytrue([for st in data.aws_iam_policy_document.iam.statement :
+    st.sid == "ProtectBootstrapState" && contains(st.resources, "arn:aws:s3:::job-board-tfstate-123456789012-us-east-1/job-board/bootstrap.tfstate*")])
+    error_message = "The bootstrap state must be write-protected at the key bootstrap.sh uses."
+  }
+}
+
+run "trusts_production_and_staging_branches" {
+  command = plan
+
+  variables {
+    deploy_branches = ["main", "staging"]
+  }
+
+  assert {
+    condition = anytrue([for c in data.aws_iam_policy_document.trust.statement[0].condition :
+      c.variable == "token.actions.githubusercontent.com:sub" && c.values == tolist([
+        "repo:aleemotless/job-board:ref:refs/heads/main",
+        "repo:aleemotless/job-board:ref:refs/heads/staging",
+    ])])
+    error_message = "Role must trust exactly the configured deploy branches."
+  }
+}
+
+run "rejects_no_branches" {
+  command = plan
+
+  variables {
+    deploy_branches = []
+  }
+
+  expect_failures = [var.deploy_branches]
 }
 
 run "reuses_existing_oidc_provider" {

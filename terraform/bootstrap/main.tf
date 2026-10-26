@@ -46,9 +46,15 @@ variable "github_oidc_subject_prefix" {
   default     = ""
 }
 
-variable "deploy_branch" {
-  type    = string
-  default = "main"
+variable "deploy_branches" {
+  description = "Branches whose pipeline runs may run Terraform: one per environment (production.tfvars and staging.tfvars deploy_branch)."
+  type        = list(string)
+  default     = ["main"]
+
+  validation {
+    condition     = length(var.deploy_branches) > 0
+    error_message = "At least one deploy branch is required."
+  }
 }
 
 variable "create_github_oidc_provider" {
@@ -98,18 +104,18 @@ data "aws_iam_policy_document" "trust" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Only pipeline runs on the deploy branch; never PRs, forks, other branches or tags.
+    # Only pipeline runs on the deploy branches; never PRs, forks, other branches or tags.
     condition {
       test     = "StringEquals"
       variable = "${local.oidc_host}:sub"
-      values   = ["${local.subject_prefix}:ref:refs/heads/${var.deploy_branch}"]
+      values   = [for branch in var.deploy_branches : "${local.subject_prefix}:ref:refs/heads/${branch}"]
     }
   }
 }
 
 resource "aws_iam_role" "terraform" {
   name                 = local.role_name
-  description          = "Runs the ${var.app_name} Terraform stack from GitHub Actions (${var.github_repository}@${var.deploy_branch})"
+  description          = "Runs the ${var.app_name} Terraform stacks from GitHub Actions (${var.github_repository}@${join(",", var.deploy_branches)})"
   assume_role_policy   = data.aws_iam_policy_document.trust.json
   max_session_duration = 3600
 }
@@ -144,13 +150,13 @@ data "aws_iam_policy_document" "iam" {
     resources   = [local.role_arn]
   }
 
-  # The pipeline may read/write the main state, but not the bootstrap state
-  # (this file's) or the bucket's protections.
+  # The pipeline may read/write the environment states, but not the bootstrap
+  # state (this file's, at <app_name>/bootstrap.tfstate) or the bucket's protections.
   statement {
     sid       = "ProtectBootstrapState"
     effect    = "Deny"
     actions   = ["s3:PutObject", "s3:DeleteObject"]
-    resources = ["arn:${data.aws_partition.current.partition}:s3:::${local.state_bucket}/bootstrap.tfstate*"]
+    resources = ["arn:${data.aws_partition.current.partition}:s3:::${local.state_bucket}/${var.app_name}/bootstrap.tfstate*"]
   }
 
   statement {

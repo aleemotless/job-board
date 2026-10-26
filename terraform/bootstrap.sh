@@ -7,16 +7,36 @@
 #   1. the S3 bucket holding Terraform state (versioned, encrypted, private)
 #   2. bootstrap/: the GitHub OIDC provider and the role the pipeline assumes
 #   3. GitHub repository variables AWS_REGION and AWS_TERRAFORM_ROLE_ARN (via gh)
-# Region, app name and repository are read from production.tfvars.
+# Region, app name and repository are read from production.tfvars. Every
+# environment (production.tfvars, staging.tfvars) shares the bucket and the role;
+# the role trusts each environment's deploy_branch.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-tfvar() { sed -nE "s/^$1[[:space:]]*=[[:space:]]*\"([^\"]*)\".*/\\1/p" production.tfvars; }
+ENVIRONMENTS=(production staging)
+
+tfvar() { sed -nE "s/^$1[[:space:]]*=[[:space:]]*\"([^\"]*)\".*/\\1/p" "${2:-production}.tfvars"; }
 REGION=$(tfvar aws_region)
 REPO=$(tfvar github_repository)
 APP_NAME=$(tfvar app_name)
 APP_NAME=${APP_NAME:-job-board}
 [[ -n $REGION && -n $REPO ]] || { echo "Set aws_region and github_repository in production.tfvars" >&2; exit 1; }
+
+# One deploy branch per environment, all sharing this account, region and repository.
+BRANCHES=()
+for env in "${ENVIRONMENTS[@]}"; do
+  [[ -f ${env}.tfvars ]] || continue
+  for key in aws_region github_repository github_oidc_subject_prefix; do
+    if [[ $(tfvar "$key" "$env") != "$(tfvar "$key")" ]]; then
+      echo "${key} in ${env}.tfvars must match production.tfvars" >&2
+      exit 1
+    fi
+  done
+  branch=$(tfvar deploy_branch "$env")
+  BRANCHES+=("${branch:-main}")
+done
+BRANCHES_HCL=$(printf '"%s",' "${BRANCHES[@]}")
+BRANCHES_HCL="[${BRANCHES_HCL%,}]"
 
 # The role trust must match the "sub" claim GitHub puts in this repo's OIDC tokens,
 # which is either classic (repo:owner/name) or immutable (repo:owner@id/name@id).
@@ -36,7 +56,7 @@ fi
 
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 BUCKET="${APP_NAME}-tfstate-${ACCOUNT_ID}-${REGION}"
-echo "Account ${ACCOUNT_ID}, region ${REGION}, repository ${REPO} (OIDC subject ${SUBJECT_PREFIX})"
+echo "Account ${ACCOUNT_ID}, region ${REGION}, repository ${REPO} (OIDC subject ${SUBJECT_PREFIX}), branches ${BRANCHES[*]}"
 
 # --- 1. State bucket ----------------------------------------------------------
 if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
@@ -60,7 +80,8 @@ write_backend() { # <file> <key>
   printf 'bucket       = "%s"\nkey          = "%s"\nregion       = "%s"\nencrypt      = true\nuse_lockfile = true\n' \
     "$BUCKET" "$2" "$REGION" >"$1"
 }
-write_backend backend.hcl "${APP_NAME}/production.tfstate" # for local runs of the main stack
+write_backend backend.hcl "${APP_NAME}/production.tfstate" # for local runs of the production stack
+write_backend backend-staging.hcl "${APP_NAME}/staging.tfstate"
 write_backend bootstrap/backend.hcl "${APP_NAME}/bootstrap.tfstate"
 
 # --- 2. OIDC provider + pipeline role -----------------------------------------
@@ -79,6 +100,7 @@ fi
 terraform -chdir=bootstrap apply \
   -var "aws_region=${REGION}" -var "app_name=${APP_NAME}" -var "github_repository=${REPO}" \
   -var "github_oidc_subject_prefix=${SUBJECT_PREFIX}" \
+  -var "deploy_branches=${BRANCHES_HCL}" \
   -var "create_github_oidc_provider=${create_oidc}"
 ROLE_ARN=$(terraform -chdir=bootstrap output -raw terraform_role_arn)
 
@@ -93,4 +115,4 @@ else
   echo "  AWS_REGION=${REGION}"
   echo "  AWS_TERRAFORM_ROLE_ARN=${ROLE_ARN}"
 fi
-echo "Bootstrap complete. Push to main (or: gh workflow run deploy.yml --ref main) to create the infrastructure and deploy."
+echo "Bootstrap complete. Push to main (production) or staging (staging), or run: gh workflow run deploy.yml --ref <branch>"

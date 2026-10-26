@@ -1,10 +1,11 @@
 name: Deploy
 
-# Every push to main: checks -> Terraform plan (apply only if something changed)
-# -> build & push image -> blue/green release on EC2 -> public health check.
+# Every push to main (production) or staging (staging): checks -> Terraform plan
+# (apply only if something changed) -> build & push image -> blue/green release
+# on EC2 -> public health check. Each branch has its own, fully separate stack.
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   workflow_dispatch:
     inputs:
       action:
@@ -21,19 +22,25 @@ on:
         type: boolean
         default: false
 
-# One production run at a time (Terraform state and the release switch); a newer
-# push waits instead of interrupting an apply or a release mid-switch.
+# One run per environment at a time (Terraform state and the release switch); a
+# newer push waits instead of interrupting an apply or a release mid-switch.
 concurrency:
-  group: production
+  group: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
   cancel-in-progress: false
 
 permissions:
   contents: read
 
+# main -> production, staging -> staging. Everything environment-specific comes from
+# terraform/<ENVIRONMENT>.tfvars and the SSM deploy config Terraform writes.
 env:
-  APP_NAME: job-board # must match app_name in terraform/production.tfvars
+  ENVIRONMENT: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+  # must match app_name in terraform/<ENVIRONMENT>.tfvars
+  APP_NAME: ${{ github.ref_name == 'main' && 'job-board' || 'job-board-staging' }}
   AWS_REGION: ${{ vars.AWS_REGION }}
-  DEPLOY_CONFIG_PARAMETER: /job-board/deploy-config
+  DEPLOY_CONFIG_PARAMETER: ${{ github.ref_name == 'main' && '/job-board/deploy-config' || '/job-board-staging/deploy-config' }}
+  # Shared state bucket created by bootstrap.sh (job-board-tfstate-<account>-<region>)
+  STATE_PREFIX: job-board
 
 jobs:
   checks:
@@ -41,10 +48,10 @@ jobs:
     uses: ./.github/workflows/ci.yml
 
   infrastructure:
-    name: Terraform plan & apply
+    name: Terraform plan & apply (${{ github.ref_name == 'main' && 'production' || 'staging' }})
     needs: checks
     if: >-
-      !cancelled() && github.ref == 'refs/heads/main'
+      !cancelled() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging')
       && (needs.checks.result == 'success' || needs.checks.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -69,9 +76,16 @@ jobs:
             echo "::error::Set the AWS_REGION and AWS_TERRAFORM_ROLE_ARN repository variables by running terraform/bootstrap.sh once (see DEPLOYMENT.md)."
             exit 1
           fi
-          tf_region=$(sed -nE 's/^aws_region[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/p' production.tfvars)
+          tfvars="${ENVIRONMENT}.tfvars"
+          tfvar() { sed -nE "s/^$1[[:space:]]*=[[:space:]]*\"([^\"]*)\".*/\\1/p" "$tfvars"; }
+          tf_region=$(tfvar aws_region)
           if [[ $tf_region != "$AWS_REGION" ]]; then
-            echo "::error::aws_region in production.tfvars (${tf_region}) differs from the AWS_REGION variable (${AWS_REGION}). Moving regions needs a new bootstrap; see DEPLOYMENT.md."
+            echo "::error::aws_region in ${tfvars} (${tf_region}) differs from the AWS_REGION variable (${AWS_REGION}). Moving regions needs a new bootstrap; see DEPLOYMENT.md."
+            exit 1
+          fi
+          tf_app_name=$(tfvar app_name)
+          if [[ ${tf_app_name:-job-board} != "$APP_NAME" ]]; then
+            echo "::error::app_name in ${tfvars} (${tf_app_name:-job-board}) differs from APP_NAME in deploy.yml (${APP_NAME})."
             exit 1
           fi
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
@@ -86,8 +100,8 @@ jobs:
         run: |
           account=$(aws sts get-caller-identity --query Account --output text)
           terraform init \
-            -backend-config="bucket=${APP_NAME}-tfstate-${account}-${AWS_REGION}" \
-            -backend-config="key=${APP_NAME}/production.tfstate" \
+            -backend-config="bucket=${STATE_PREFIX}-tfstate-${account}-${AWS_REGION}" \
+            -backend-config="key=${STATE_PREFIX}/${ENVIRONMENT}.tfstate" \
             -backend-config="region=${AWS_REGION}" \
             -backend-config="encrypt=true" \
             -backend-config="use_lockfile=true"
@@ -99,7 +113,7 @@ jobs:
         run: |
           set +e
           # shellcheck disable=SC2086 # REPLACE is empty or a single flag
-          terraform plan $REPLACE -var-file=production.tfvars -lock-timeout=5m -detailed-exitcode -no-color -out=tfplan >plan.txt 2>&1
+          terraform plan $REPLACE -var-file="${ENVIRONMENT}.tfvars" -lock-timeout=5m -detailed-exitcode -no-color -out=tfplan >plan.txt 2>&1
           code=$?
           set -e
           cat plan.txt
@@ -107,14 +121,14 @@ jobs:
           if [[ $code == 2 ]]; then
             echo "changes=true" >>"$GITHUB_OUTPUT"
             {
-              echo "### Terraform: applying infrastructure changes"
+              echo "### Terraform (${ENVIRONMENT}): applying infrastructure changes"
               echo '```'
               grep -E '^  # |^Plan:' plan.txt | head -100
               echo '```'
             } >>"$GITHUB_STEP_SUMMARY"
           else
             echo "changes=false" >>"$GITHUB_OUTPUT"
-            echo "### Terraform: no infrastructure changes" >>"$GITHUB_STEP_SUMMARY"
+            echo "### Terraform (${ENVIRONMENT}): no infrastructure changes" >>"$GITHUB_STEP_SUMMARY"
           fi
       - name: Apply
         if: steps.plan.outputs.changes == 'true'
@@ -194,7 +208,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   deploy:
-    name: Deploy to EC2
+    name: Deploy to EC2 (${{ github.ref_name == 'main' && 'production' || 'staging' }})
     needs: [infrastructure, image]
     if: >-
       !cancelled() && needs.infrastructure.result == 'success'
