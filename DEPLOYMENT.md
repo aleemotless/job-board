@@ -32,6 +32,7 @@ Nobody needs SSH, and nobody configures the server by hand. The only manual step
 | `deploy/remote-deploy.sh` | Runs on the instance. Does the blue/green switch and the rollback. It is sent with every deploy, so changes take effect without touching the instance. |
 | `terraform/` | VPC, security group, EC2, Elastic IP, IAM, GitHub OIDC, ECR, CloudWatch Logs, SSM parameters, and an optional Route 53 hosted zone and records. |
 | `terraform/production.tfvars` | Production settings (region, repository, instance size, optional domain). Committed and contains no secrets, so infrastructure changes are reviewed in PRs. |
+| `terraform/staging.tfvars` | Staging settings, deployed from the `staging` branch. See [Staging environment](#staging-environment). |
 | `terraform/bootstrap.sh`, `terraform/bootstrap/` | One-time bootstrap: creates the state bucket, the GitHub OIDC provider and the role the pipeline uses for Terraform, and sets the GitHub variables. |
 | `terraform/tests/`, `terraform/bootstrap/tests/` | Offline `terraform test` checks that use a mocked AWS provider. |
 | `.github/workflows/ci.yml` | PR checks: lint, build, smoke test, shellcheck, Terraform validate/test and Docker build. The deploy workflow reuses it. |
@@ -100,6 +101,45 @@ The run summary shows the URL. It is also the `app_url` output of `terraform out
 ### 4. Protect `main` *(GitHub settings)*
 
 Anyone who can push to `main` can change the infrastructure and deploy. Add a branch protection rule or ruleset for `main` that requires pull requests, reviews and the `CI` checks.
+
+---
+
+## Staging environment
+
+Staging is a second, fully separate copy of the production stack. It runs the same Terraform code, workflow and scripts with its own settings.
+
+| | Production | Staging |
+|---|---|---|
+| Deploys on push to | `main` | `staging` |
+| Settings | `terraform/production.tfvars` | `terraform/staging.tfvars` |
+| `app_name` (prefix of every resource, SSM path and on-host dir) | `job-board` | `job-board-staging` |
+| Terraform state (shared bucket) | `job-board/production.tfstate` | `job-board/staging.tfstate` |
+| Deploy config / app env in SSM | `/job-board/deploy-config`, `/job-board/env/` | `/job-board-staging/deploy-config`, `/job-board-staging/env/` |
+| User site | `joblezz.limitlezz.online` | `joblezz-staging.limitlezz.online` |
+| Admin | `admin.limitlezz.online` | `admin-staging.limitlezz.online` |
+| VPC | `10.20.0.0/16` | `10.21.0.0/16` |
+
+Each environment has its own VPC, EC2 instance, Elastic IP, ECR repository, IAM roles, log group and SSM parameters, so a staging release can't touch production. Staging builds its own image from the `staging` commit. Production rebuilds from `main`, so nothing is promoted between environments.
+
+`deploy.yml` picks the environment from the branch: `main` → production, `staging` → staging. Runs on any other branch stop before Terraform. Runs for different environments don't block each other, but each environment allows only one run at a time.
+
+Staging hostnames use a single label (`*-staging`) because Cloudflare's free Universal SSL covers only `*.limitlezz.online`, not `*.staging.limitlezz.online`. `proxy.ts` treats any host whose first label is `admin` or starts with `admin-` as the admin dashboard.
+
+### Setting up staging *(once)*
+
+1. **Re-run the bootstrap** with admin credentials: `terraform/bootstrap.sh`. It now reads `deploy_branch` from every `*.tfvars` and lets the pipeline's Terraform role (`job-board-github-terraform`) be assumed from both `main` and `staging`. It also writes `terraform/backend-staging.hcl` for local runs. The pipeline can't widen its own trust, so this step is required.
+2. **Create the branch**: `git push origin main:staging`, or push the branch you want to test. The first run takes about 10 minutes and creates the staging stack.
+3. **DNS in Cloudflare**: create proxied `A` records for `joblezz-staging` and `admin-staging` that point at staging's Elastic IP (the `public_ip` output, or the deploy run summary). Caddy issues the certificates on the next request, and Cloudflare's **Full (strict)** zone setting already applies.
+4. **Protect `staging`** like `main`. Anyone who can push to it can run Terraform with the shared, broad Terraform role, which can reach production resources too (see Security).
+
+### Using staging
+
+- **Deploy**: merge or push to `staging`. A typical flow is feature branch → PR into `staging` → test → PR `staging` → `main`.
+- **Rollback / redeploy / replace instance**: the same `workflow_dispatch` options, run on the staging branch: `gh workflow run deploy.yml --ref staging -f action=rollback`.
+- **App secrets**: put them under `/job-board-staging/env/`, e.g. `aws ssm put-parameter --name /job-board-staging/env/DATABASE_URL --type SecureString --value '...'`.
+- **Local plan**: `cd terraform && terraform init -reconfigure -backend-config=backend-staging.hcl && terraform plan -var-file=staging.tfvars`.
+- **Logs**: `aws logs tail /job-board-staging/app --follow --region us-east-1`.
+- **Cost**: about the same as production (≈ $21/month). Set `instance_type = "t3.micro"` in `staging.tfvars` to save about $7.50/month, at the cost of tight memory during a release switch. To pause it, `terraform destroy -var-file=staging.tfvars` locally with the staging backend. Pushing to `staging` recreates it.
 
 ---
 
@@ -248,6 +288,7 @@ When destroying the bootstrap stack, pass `-var create_github_oidc_provider=fals
   - The app runs as uid 1001 with `--cap-drop ALL` and `no-new-privileges`.
   - The instance role can only use SSM management, pull from this one ECR repo, write to this one log group, and read `/job-board/env/*`.
 - **GitHub Terraform role** (`job-board-github-terraform`, used only by the pipeline's infrastructure job):
+  - It is shared by production and staging, and trusts both the `main` and `staging` branches. A push to `staging` can therefore change production infrastructure too. For hard isolation, put staging in a separate AWS account, or give it its own bootstrap role scoped to `job-board-staging-*`.
   - It has `PowerUserAccess`, plus IAM limited to roles and instance profiles named `job-board-*`. That is broad: whoever controls `main` effectively controls most of the AWS account, so branch protection on `main` matters.
   - It can't modify its own role, the bootstrap state, or the state bucket's protections.
   - For an approval gate before applies, put the infrastructure job in a protected GitHub environment and change the role's trusted subject in `terraform/bootstrap/main.tf` to `repo:aleemotless/job-board:environment:<name>`.

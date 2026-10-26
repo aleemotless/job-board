@@ -160,3 +160,39 @@ run "immutable_subject_prefix" {
     error_message = "Deploy role trust must use the configured subject prefix."
   }
 }
+
+# Mirrors staging.tfvars: a second stack whose names, paths and trust never
+# collide with production.
+run "staging_stack_is_isolated" {
+  command = apply
+
+  variables {
+    app_name           = "job-board-staging"
+    deploy_branch      = "staging"
+    vpc_cidr           = "10.21.0.0/16"
+    public_subnet_cidr = "10.21.1.0/24"
+    domain_name        = "joblezz-staging.limitlezz.online"
+    extra_domain_names = ["admin-staging.limitlezz.online"]
+  }
+
+  assert {
+    condition     = aws_ssm_parameter.deploy_config.name == "/job-board-staging/deploy-config" && jsondecode(aws_ssm_parameter.deploy_config.value).env_parameter_path == "/job-board-staging/env"
+    error_message = "Staging must use its own SSM paths."
+  }
+  assert {
+    condition     = aws_ecr_repository.app.name == "job-board-staging" && aws_cloudwatch_log_group.app.name == "/job-board-staging/app"
+    error_message = "Staging must use its own ECR repository and log group."
+  }
+  assert {
+    condition     = aws_iam_role.github_deploy.name == "job-board-staging-github-deploy" && aws_iam_role.instance.name == "job-board-staging-instance"
+    error_message = "Staging IAM roles must keep the job-board-* prefix the pipeline's Terraform role may manage."
+  }
+  assert {
+    condition     = anytrue([for c in data.aws_iam_policy_document.github_deploy_trust.statement[0].condition : c.variable == "token.actions.githubusercontent.com:sub" && c.values == tolist(["repo:aleemotless/job-board:ref:refs/heads/staging"])])
+    error_message = "The staging deploy role must trust only the staging branch."
+  }
+  assert {
+    condition     = output.app_url == "https://joblezz-staging.limitlezz.online" && jsondecode(aws_ssm_parameter.deploy_config.value).site_address == "joblezz-staging.limitlezz.online, admin-staging.limitlezz.online"
+    error_message = "Caddy should serve both staging hosts."
+  }
+}

@@ -40,15 +40,17 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# terraform (keep .terraform.lock.hcl and production.tfvars committed)
+# terraform (keep .terraform.lock.hcl and the per-environment tfvars committed)
 .terraform/
 *.tfstate
 *.tfstate.*
 *.tfvars
 !/terraform/production.tfvars
+!/terraform/staging.tfvars
 *.tfplan
 tfplan
 backend.hcl
+backend-*.hcl
 crash.log
 crash.*.log
 override.tf
