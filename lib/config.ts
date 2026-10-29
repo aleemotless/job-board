@@ -54,6 +54,12 @@ export const RECENT_APPLICATIONS_COUNT = 5;
 export const JOBS_TAG = "jobs";
 export const APPLICATIONS_TAG = "applications";
 
+// --- Database -----------------------------------------------------------
+
+// Most sockets each server process's MongoDB pool may open. The total across the app is
+// roughly running containers × this, which must stay under the cluster's connection limit.
+export const MONGODB_MAX_POOL_SIZE = 10;
+
 // --- Statuses (the JobStatus / ApplicationStatus types are derived from these) ---
 
 export const JOB_STATUSES = ["open", "closed"] as const;

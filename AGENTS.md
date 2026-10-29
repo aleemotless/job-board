@@ -32,6 +32,9 @@ This project's UI is built on **shadcn/ui** (Radix base, `radix-nova` style — 
 
 Prefer simple, explicit, idiomatic React and Next.js over clever abstractions. Optimize for the next developer reading the code. Where this file and `CLAUDE.md` disagree, `CLAUDE.md` wins.
 
+### Starting a feature
+- **Every new feature starts on its own branch.** Before changing any code, create one from the latest app code: `git switch -c feat/<short-name>` (e.g. `feat/mongodb-connection`). Never build a feature directly on `main` or on another feature's branch.
+
 ### Architecture: n-tier (handler → service → data)
 All server-side logic is split into three layers. Each layer calls only the layer directly below it: never upward, never skipping one.
 

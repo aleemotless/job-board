@@ -15,7 +15,8 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
     NEXT_DEPLOYMENT_ID=${APP_VERSION}
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+# Pages are prerendered from MongoDB. A build secret, so the URI never lands in an image layer.
+RUN --mount=type=secret,id=MONGODB_URI,env=MONGODB_URI npm run build
 
 FROM node:${NODE_VERSION}-alpine AS runner
 WORKDIR /app
