@@ -279,7 +279,7 @@ When destroying the bootstrap stack, pass `-var create_github_oidc_provider=fals
 - **Network**:
   - Inbound is only TCP 80/443 (plus UDP 443 when serving HTTPS) from `allowed_http_cidrs`.
   - There is no SSH unless you set `ssh_allowed_cidrs`; `0.0.0.0/0` is rejected.
-  - Outbound is only TCP 80/443.
+  - Outbound is only TCP 80/443, plus 27017 for MongoDB Atlas (restricted on the Atlas side by its IP access list).
   - The app containers listen only on `127.0.0.1` and the private Docker network.
   - The VPC's default security group has its rules removed.
 - **Instance**:

@@ -108,3 +108,14 @@ resource "aws_vpc_security_group_egress_rule" "web" {
   to_port           = tonumber(each.value)
   cidr_ipv4         = "0.0.0.0/0"
 }
+
+# MongoDB Atlas. Its node IPs aren't fixed, so any destination; Atlas's own IP
+# access list (this instance's Elastic IP) is what restricts who can connect.
+resource "aws_vpc_security_group_egress_rule" "mongodb" {
+  security_group_id = aws_security_group.app.id
+  description       = "MongoDB Atlas"
+  ip_protocol       = "tcp"
+  from_port         = 27017
+  to_port           = 27017
+  cidr_ipv4         = "0.0.0.0/0"
+}
