@@ -112,11 +112,12 @@ export const MAX_CV_FILE_NAME_LENGTH = 200;
 // for serving; the extension must be one of these and the reported type must agree with it.
 export const CV_TYPES = {
     ".pdf": "application/pdf",
-    ".doc": "application/msword",
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 } as const;
 
 export const CV_ACCEPT = Object.keys(CV_TYPES).join(",");
+
+// S3 key prefix for CV objects (`cvs/<applicationId>`); the bucket comes from the CV_BUCKET env var.
+export const CV_KEY_PREFIX = "cvs/";
 
 // Server Action request body cap (next.config.ts): the largest CV plus multipart overhead.
 export const SERVER_ACTION_BODY_LIMIT_BYTES = MAX_CV_BYTES + MB;

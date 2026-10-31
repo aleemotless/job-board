@@ -1,6 +1,6 @@
 import { Types } from "mongoose";
 import { ApplicationModel } from "./models/application";
-import { CvModel } from "./models/cv";
+import { putCv } from "./cv-storage";
 import { JobModel } from "./models/job";
 import { seed } from "./store";
 
@@ -26,13 +26,9 @@ export async function insertMockData(): Promise<{ jobs: number; applications: nu
             createdAt: new Date(createdAt),
         })),
     );
-    await CvModel.insertMany(
-        Object.entries(cvs).map(([applicationId, { data, ...cv }]) => ({
-            ...cv,
-            applicationId: applicationIds.get(applicationId),
-            data: Buffer.from(data),
-        })),
-    );
+    for (const [applicationId, cv] of Object.entries(cvs)) {
+        await putCv(applicationIds.get(applicationId)!.toHexString(), cv.data, cv.contentType);
+    }
 
     return { jobs: jobs.length, applications: applications.length, cvs: Object.keys(cvs).length };
 }

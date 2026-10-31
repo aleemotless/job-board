@@ -1,7 +1,7 @@
 import { model, Schema, type InferSchemaType, type Types } from "mongoose";
 import { APPLICATION_STATUSES, CV_TYPES } from "@/lib/config";
 
-// CV metadata only; the bytes live in the `cvs` collection (see cv.ts) so application reads never carry file data.
+// CV metadata only; the bytes live in S3 (see cv-storage.ts) so application reads never carry file data.
 const cvFileSchema = new Schema(
     {
         fileName: { type: String, required: true },

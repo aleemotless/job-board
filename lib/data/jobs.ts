@@ -4,7 +4,7 @@ import type { Job, JobInput, JobWithApplicationCount } from "@/types";
 import { connectToDatabase } from "./mongo";
 import { toJob, toJobWithApplicationCount } from "./mappers/job";
 import { ApplicationModel } from "./models/application";
-import { CvModel } from "./models/cv";
+import { deleteCvs } from "./cv-storage";
 import { JobModel, type JobWithApplicationCountRecord } from "./models/job";
 import { APPLICATIONS_TAG, JOBS_TAG } from "@/lib/config";
 
@@ -65,7 +65,7 @@ export async function deleteJob(id: string): Promise<void> {
     if (!isObjectIdOrHexString(id)) return;
     await connectToDatabase();
     const applicationIds = await ApplicationModel.find({ jobId: id }).distinct("_id");
-    await CvModel.deleteMany({ applicationId: { $in: applicationIds } });
+    await deleteCvs(applicationIds.map(String));
     await ApplicationModel.deleteMany({ jobId: id });
     await JobModel.findByIdAndDelete(id);
 }

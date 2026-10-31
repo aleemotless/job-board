@@ -44,7 +44,7 @@ export function ApplyForm({ action }: ApplyFormProps) {
                         <FormTextField name="name" label="Full name" autoComplete="name" />
                         <FormTextField name="email" label="Email" type="email" autoComplete="email" />
                         <FormTextField name="coverLetter" label="Cover letter (optional)" multiline />
-                        <FormFileField name="cv" label="CV" hint={`PDF, DOC or DOCX, up to ${formatFileSize(MAX_CV_BYTES)}.`} accept={CV_ACCEPT} />
+                        <FormFileField name="cv" label="CV" hint={`PDF, up to ${formatFileSize(MAX_CV_BYTES)}.`} accept={CV_ACCEPT} />
                         <FormError />
                         <FormSubmitButton pendingLabel="Sending...">Submit application</FormSubmitButton>
                     </FieldGroup>

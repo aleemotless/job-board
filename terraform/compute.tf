@@ -19,9 +19,9 @@ resource "aws_instance" "app" {
 
   metadata_options {
     http_tokens = "required" # IMDSv2 only
-    # Hop limit 1: containers on Docker's bridge network cannot reach the
-    # instance metadata service, so the app never sees the instance role.
-    http_put_response_hop_limit = 1
+    # Hop limit 2: containers on Docker's bridge network can reach the instance
+    # metadata service, so the app uses the instance role for the CV bucket.
+    http_put_response_hop_limit = 2
     http_endpoint               = "enabled"
   }
 
@@ -57,7 +57,7 @@ resource "aws_cloudwatch_log_group" "app" {
   retention_in_days = var.log_retention_days
 }
 
-# --- Instance role: SSM management, ECR pull, logs, app env parameters -------
+# --- Instance role: SSM management, ECR pull, logs, app env, CV bucket -------
 
 data "aws_iam_policy_document" "ec2_assume" {
   statement {
@@ -115,6 +115,13 @@ data "aws_iam_policy_document" "instance" {
       "${local.ssm_parameter_arn_prefix}${local.env_parameter_path}",
       "${local.ssm_parameter_arn_prefix}${local.env_parameter_path}/*",
     ]
+  }
+
+  # Used by the app container (see metadata_options): objects only, no listing.
+  statement {
+    sid       = "CvObjects"
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.cvs.arn}/*"]
   }
 }
 

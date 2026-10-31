@@ -4,7 +4,7 @@ import type { Application, ApplicationInput, ApplicationStatus, ApplicationWithJ
 import { connectToDatabase } from "./mongo";
 import { toApplication, toApplicationWithJob } from "./mappers/application";
 import { ApplicationModel, type ApplicationWithJobRecord } from "./models/application";
-import { CvModel } from "./models/cv";
+import { deleteCv, getCv, putCv } from "./cv-storage";
 import { JobModel } from "./models/job";
 import { APPLICATIONS_TAG, JOBS_TAG } from "@/lib/config";
 
@@ -43,20 +43,25 @@ export async function getApplication(id: string): Promise<ApplicationWithJob | u
     return app ? toApplicationWithJob(app) : undefined;
 }
 
-// Not cached: returns file bytes, read per request by the CV download route.
+// Not cached: returns file bytes from S3, read per request by the CV download route.
 export async function getApplicationCv(id: string): Promise<StoredCv | undefined> {
     if (!isObjectIdOrHexString(id)) return undefined;
     await connectToDatabase();
-    const cv = await CvModel.findOne({ applicationId: id });
-    if (!cv) return undefined;
-    return { fileName: cv.fileName, contentType: cv.contentType, size: cv.size, data: new Uint8Array(cv.data) };
+    const app = await ApplicationModel.findById(id, { cv: 1 }).lean();
+    if (!app?.cv) return undefined;
+    const data = await getCv(id);
+    if (!data) return undefined;
+    return { fileName: app.cv.fileName, contentType: app.cv.contentType, size: app.cv.size, data };
 }
 
 export async function createApplication(jobId: string, input: ApplicationInput, cv: StoredCv): Promise<Application> {
     await connectToDatabase();
     const { data, ...meta } = cv;
-    const app = await ApplicationModel.create({ ...input, jobId, cv: meta, status: "pending" });
-    await CvModel.create({ ...meta, applicationId: app._id, data: Buffer.from(data) });
+    // Upload first, so an application is never saved without its CV. If saving fails, the object is
+    // left behind but unreachable.
+    const _id = new Types.ObjectId();
+    await putCv(_id.toHexString(), data, meta.contentType);
+    const app = await ApplicationModel.create({ ...input, _id, jobId, cv: meta, status: "pending" });
     return toApplication(app.toObject());
 }
 
@@ -70,6 +75,6 @@ export async function updateApplicationStatus(id: string, status: ApplicationSta
 export async function deleteApplication(id: string): Promise<void> {
     if (!isObjectIdOrHexString(id)) return;
     await connectToDatabase();
-    await CvModel.deleteOne({ applicationId: id });
+    await deleteCv(id);
     await ApplicationModel.findByIdAndDelete(id);
 }
