@@ -51,8 +51,21 @@ run "defaults_http_only_no_ssh" {
     error_message = "Should pick the first AZ offering the instance type."
   }
   assert {
-    condition     = aws_instance.app.metadata_options[0].http_tokens == "required" && aws_instance.app.metadata_options[0].http_put_response_hop_limit == 1
-    error_message = "IMDSv2 with hop limit 1 is required."
+    condition     = aws_instance.app.metadata_options[0].http_tokens == "required" && aws_instance.app.metadata_options[0].http_put_response_hop_limit == 2
+    error_message = "IMDSv2 with hop limit 2 (for the app container) is required."
+  }
+  assert {
+    condition = alltrue([
+      aws_s3_bucket_public_access_block.cvs.block_public_acls,
+      aws_s3_bucket_public_access_block.cvs.block_public_policy,
+      aws_s3_bucket_public_access_block.cvs.ignore_public_acls,
+      aws_s3_bucket_public_access_block.cvs.restrict_public_buckets,
+    ])
+    error_message = "The CV bucket must block all public access."
+  }
+  assert {
+    condition     = aws_ssm_parameter.cv_bucket.name == "/job-board/env/CV_BUCKET"
+    error_message = "The app should get CV_BUCKET from its env path."
   }
   assert {
     condition     = jsondecode(aws_ssm_parameter.deploy_config.value).site_address == ":80"

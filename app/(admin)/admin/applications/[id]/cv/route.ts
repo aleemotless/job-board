@@ -1,6 +1,6 @@
 import { getApplicationCv } from "@/lib/services/applications";
 
-// TODO: check the admin session here once auth exists; proxy.ts only routes.
+// Admins only: proxy.ts blocks /admin/* for anyone without the admin role.
 
 // Downloads an applicant's CV. Always served as an attachment with the content type
 // chosen at upload (lib/validation/application.ts), never the browser-reported one.

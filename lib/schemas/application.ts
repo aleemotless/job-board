@@ -15,7 +15,7 @@ export const applicationSchema = z.object({
     name: z.string(),
     email: z.string(),
     coverLetter: z.string(),
-    // Metadata only; the file bytes live in the store's `cvs` map, keyed by application id,
+    // Metadata only; the file bytes live in S3, keyed by application id,
     // so cached reads never carry file data.
     cv: cvFileSchema.nullable(),
     status: applicationStatusSchema,
@@ -47,7 +47,7 @@ function cvContentType(file: File): string | undefined {
     const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
     const entry = Object.entries(CV_TYPES).find(([ext]) => ext === extension);
     if (!entry) return undefined;
-    // Some browsers send an empty or generic type for .doc/.docx.
+    // Some browsers send an empty or generic type.
     const [, type] = entry;
     return file.type === type || file.type === "" || file.type === "application/octet-stream" ? type : undefined;
 }
@@ -60,7 +60,7 @@ export const cvUploadSchema = z
     .transform((file, ctx) => {
         const contentType = cvContentType(file);
         if (!contentType) {
-            ctx.addIssue({ code: "custom", message: "CV must be a PDF, DOC or DOCX file." });
+            ctx.addIssue({ code: "custom", message: "CV must be a PDF file." });
             return z.NEVER;
         }
         return { file, contentType };

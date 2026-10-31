@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { getOpenJobs } from "@/lib/services/jobs";
 import { SectionHeader } from "@/components/common/section-header";
 import { PageContainer } from "@/components/layout/container";
@@ -9,6 +10,8 @@ export const metadata: Metadata = {
 };
 
 export default async function Jobs() {
+    // Rendered per request, not at build time, so building the app never needs the database.
+    await connection();
     const jobs = await getOpenJobs();
 
     return (

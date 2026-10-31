@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { getDashboardData } from "@/lib/services/dashboard";
 import { SectionHeader } from "@/components/common/section-header";
 import { DashboardStatCards } from "./_components/dashboard-stat-cards";
@@ -10,6 +11,8 @@ export const metadata: Metadata = {
 
 // Admin dashboard, served at admin.limitlezz.online (see proxy.ts).
 export default async function AdminDashboard() {
+    // Rendered per request, not at build time, so building the app never needs the database.
+    await connection();
     const { stats, recentApplications } = await getDashboardData();
 
     return (

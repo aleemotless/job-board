@@ -23,6 +23,9 @@ export const SITE = {
 // Admin routes live under this prefix; the admin subdomain serves them without it (see proxy.ts).
 export const ADMIN_BASE_PATH = "/admin";
 
+export const SIGN_IN_PATH = "/sign-in";
+export const SIGN_UP_PATH = "/sign-up";
+
 export const SITE_NAV: NavItem[] = [
     { href: "/", label: "Home", exact: true },
     { href: "/jobs", label: "Jobs" },
@@ -54,6 +57,12 @@ export const RECENT_APPLICATIONS_COUNT = 5;
 export const JOBS_TAG = "jobs";
 export const APPLICATIONS_TAG = "applications";
 
+// --- Database -----------------------------------------------------------
+
+// Most sockets each server process's MongoDB pool may open. The total across the app is
+// roughly running containers × this, which must stay under the cluster's connection limit.
+export const MONGODB_MAX_POOL_SIZE = 10;
+
 // --- Statuses (the JobStatus / ApplicationStatus types are derived from these) ---
 
 export const JOB_STATUSES = ["open", "closed"] as const;
@@ -64,6 +73,9 @@ export const APPLICATION_STATUSES = ["pending", "reviewing", "accepted", "reject
 // A candidate's stage is the first of these that any of their applications has,
 // so "rejected" shows only when every application was rejected.
 export const CANDIDATE_STAGE_ORDER: readonly ApplicationStatus[] = ["accepted", "reviewing", "pending", "rejected"];
+
+// Public sign-up always creates a candidate.
+export const USER_ROLES = ["candidate", "admin"] as const;
 
 // --- Validation limits --------------------------------------------------
 // Apply to admin and public submissions alike; the public forms are unauthenticated.
@@ -80,6 +92,14 @@ export const JOB_TEXT_FIELDS = [
 
 export const APPLICATION_FIELD_LIMITS = { name: 120, email: 254, coverLetter: 5000 } as const;
 
+// bcrypt ignores everything past 72 bytes, so longer passwords are rejected rather than silently cut.
+export const USER_FIELD_LIMITS = { name: 120, email: 254, passwordMin: 8, passwordMax: 72 } as const;
+
+// --- Auth ---------------------------------------------------------------
+
+// bcrypt cost factor for password hashes (each +1 doubles the hashing time).
+export const PASSWORD_HASH_ROUNDS = 12;
+
 // Loose shape check; the real check is whether the applicant answers.
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -92,11 +112,12 @@ export const MAX_CV_FILE_NAME_LENGTH = 200;
 // for serving; the extension must be one of these and the reported type must agree with it.
 export const CV_TYPES = {
     ".pdf": "application/pdf",
-    ".doc": "application/msword",
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 } as const;
 
 export const CV_ACCEPT = Object.keys(CV_TYPES).join(",");
+
+// S3 key prefix for CV objects (`cvs/<applicationId>`); the bucket comes from the CV_BUCKET env var.
+export const CV_KEY_PREFIX = "cvs/";
 
 // Server Action request body cap (next.config.ts): the largest CV plus multipart overhead.
 export const SERVER_ACTION_BODY_LIMIT_BYTES = MAX_CV_BYTES + MB;

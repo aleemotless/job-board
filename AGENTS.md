@@ -32,6 +32,9 @@ This project's UI is built on **shadcn/ui** (Radix base, `radix-nova` style — 
 
 Prefer simple, explicit, idiomatic React and Next.js over clever abstractions. Optimize for the next developer reading the code. Where this file and `CLAUDE.md` disagree, `CLAUDE.md` wins.
 
+### Starting a feature
+- **Every new feature starts on its own branch.** Before changing any code, create one from the latest app code: `git switch -c feat/<short-name>` (e.g. `feat/mongodb-connection`). Never build a feature directly on `main` or on another feature's branch.
+
 ### Architecture: n-tier (handler → service → data)
 All server-side logic is split into three layers. Each layer calls only the layer directly below it: never upward, never skipping one.
 
@@ -68,7 +71,7 @@ All server-side logic is split into three layers. Each layer calls only the laye
 - Reads in `lib/data/*` (and expensive derived reads in `lib/services/*`) use `"use cache"` + `cacheTag(...)`. Every mutation's Server Action must call `updateTag(...)` for each tag it affects.
 - Dynamic pages stay non-async and await `params` inside a `<Suspense>` child so the shell prerenders. Type pages with the generated `PageProps<"/route">` / `LayoutProps<"/route">`.
 - Server Actions live in a colocated `actions.ts` with `"use server"`. Treat every `FormData` value as untrusted: parse and validate it on the server, return field errors via `useActionState` state, and never trust client-side checks.
-- **Auth:** Server Actions are reachable as public POST endpoints from any host, so `proxy.ts` is routing, not security. When auth lands, every admin action and page must verify the session itself.
+- **Auth:** Server Actions are reachable as public POST endpoints from any host, so `proxy.ts` is routing, not security. `proxy.ts` blocks the admin host for anyone whose session JWT doesn't carry the `admin` role, but that only guards page requests. So every Server Action except sign-up/sign-in/sign-out starts with `await requireUser()` (`lib/auth.ts`), which redirects signed-out users to the sign-in page, and every admin action with `await requireAdmin()`. A user is an admin when their `role` in the `users` collection is `admin`.
 - Use built-ins: `next/link`, `next/image`, `next/font`, the `metadata` export, and `loading`/`error`/`not-found` conventions. Never import secrets or server-only modules into Client Components.
 
 ### Forms

@@ -23,6 +23,11 @@ output "log_group" {
   value       = aws_cloudwatch_log_group.app.name
 }
 
+output "cv_bucket" {
+  description = "Private S3 bucket holding applicants' CVs (also set as the app's CV_BUCKET)."
+  value       = aws_s3_bucket.cvs.id
+}
+
 output "deploy_config_parameter" {
   description = "SSM parameter holding the pipeline's deployment settings."
   value       = aws_ssm_parameter.deploy_config.name

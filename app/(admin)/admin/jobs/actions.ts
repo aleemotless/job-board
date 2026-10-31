@@ -2,14 +2,16 @@
 
 import { updateTag } from "next/cache";
 import { redirect } from "next/navigation";
+import { requireAdmin } from "@/lib/auth";
 import { createJob, deleteJob, updateJob } from "@/lib/services/jobs";
 import { APPLICATIONS_TAG, JOBS_TAG } from "@/lib/config";
 import { parseJobForm } from "@/lib/validation/job";
 import type { ActionFormState, JobFormState } from "@/types";
 
-// TODO: check the admin session here once auth exists; proxy.ts only routes.
+// Every action requires an admin: proxy.ts guards the admin pages, not the actions themselves.
 
 export async function createJobAction(_prev: JobFormState, formData: FormData): Promise<JobFormState> {
+    await requireAdmin();
     const { input, state } = parseJobForm(formData);
     if (!input) return state;
 
@@ -19,6 +21,7 @@ export async function createJobAction(_prev: JobFormState, formData: FormData): 
 }
 
 export async function updateJobAction(id: string, _prev: JobFormState, formData: FormData): Promise<JobFormState> {
+    await requireAdmin();
     const { input, state } = parseJobForm(formData);
     if (!input) return state;
 
@@ -28,6 +31,7 @@ export async function updateJobAction(id: string, _prev: JobFormState, formData:
 }
 
 export async function deleteJobAction(id: string): Promise<ActionFormState> {
+    await requireAdmin();
     await deleteJob(id);
     updateTag(JOBS_TAG);
     updateTag(APPLICATIONS_TAG); // the job's applications are deleted too

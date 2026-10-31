@@ -1,10 +1,8 @@
-// In-memory mock database. Replace this module (and keep the functions in
-// jobs.ts / applications.ts) once a real database is in place.
-// Data resets on every restart or deploy.
+// Mock data, inserted into an empty MongoDB by `npm run seed` (lib/data/seed.ts).
 
 import type { MockStore } from "@/types";
 
-function seed(): MockStore {
+export function seed(): MockStore {
     const createdAt = new Date("2026-10-01T09:00:00Z").toISOString();
     return {
         jobs: [
@@ -19,12 +17,4 @@ function seed(): MockStore {
         ],
         cvs: {},
     };
-}
-
-// Kept on globalThis so dev-server hot reloads don't wipe it.
-const globalStore = globalThis as typeof globalThis & { __mockStore?: MockStore };
-export const store = (globalStore.__mockStore ??= seed());
-
-export function newId() {
-    return crypto.randomUUID();
 }

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { getCandidates } from "@/lib/services/candidates";
 import { SectionHeader } from "@/components/common/section-header";
 import { CandidatesTable } from "./_components/candidates-table";
@@ -8,6 +9,8 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminCandidates() {
+    // Rendered per request, not at build time, so building the app never needs the database.
+    await connection();
     const candidates = await getCandidates();
 
     return (

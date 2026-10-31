@@ -1,20 +1,9 @@
 import { cacheTag } from "next/cache";
-import type { Job, JobInput, JobWithApplicationCount, JobWithRequirements } from "@/types";
-import { getApplications } from "@/lib/data/applications";
+import type { Job, JobInput, JobWithRequirements } from "@/types";
 import { createJob, getJob, getJobs } from "@/lib/data/jobs";
-import { APPLICATIONS_TAG, JOBS_TAG } from "@/lib/config";
+import { JOBS_TAG } from "@/lib/config";
 
-export { createJob, deleteJob, getJob, updateJob } from "@/lib/data/jobs";
-
-export async function getJobsWithApplicationCounts(): Promise<JobWithApplicationCount[]> {
-    "use cache";
-    cacheTag(JOBS_TAG, APPLICATIONS_TAG);
-    const [jobs, applications] = await Promise.all([getJobs(), getApplications()]);
-    return jobs.map((job) => ({
-        ...job,
-        applicationCount: applications.filter((app) => app.jobId === job.id).length,
-    }));
-}
+export { createJob, deleteJob, getJob, getJobsWithApplicationCounts, updateJob } from "@/lib/data/jobs";
 
 // Newest first; `limit` omitted returns all of them.
 export async function getOpenJobs(limit?: number): Promise<Job[]> {
