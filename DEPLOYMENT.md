@@ -156,7 +156,7 @@ Rollback skips Terraform plan/apply. It only reads Terraform outputs.
 
 ## Application environment variables and secrets
 
-The app reads none today. To add one, put it in SSM Parameter Store under `/job-board/env/` as a `SecureString` and redeploy. The parameter name becomes the variable name.
+The app reads `MONGODB_URI` and `AUTH_SECRET`, which you set, and `CV_BUCKET` and `AWS_REGION`, which Terraform sets. See [RUNNING.md](RUNNING.md). To add a variable, put it in SSM Parameter Store under `/job-board/env/` as a `SecureString` and redeploy. The parameter name becomes the variable name.
 
 ```bash
 aws ssm put-parameter --name /job-board/env/DATABASE_URL --type SecureString --value '...' --overwrite
@@ -283,10 +283,10 @@ When destroying the bootstrap stack, pass `-var create_github_oidc_provider=fals
   - The app containers listen only on `127.0.0.1` and the private Docker network.
   - The VPC's default security group has its rules removed.
 - **Instance**:
-  - IMDSv2 is required, with hop limit 1, so containers can't reach the instance credentials.
+  - IMDSv2 is required, with hop limit 2, so the app container can use the instance role for the CV bucket. That also means a compromised container gets every instance-role permission below.
   - The root volume is encrypted.
   - The app runs as uid 1001 with `--cap-drop ALL` and `no-new-privileges`.
-  - The instance role can only use SSM management, pull from this one ECR repo, write to this one log group, and read `/job-board/env/*`.
+  - The instance role can only use SSM management, pull from this one ECR repo, write to this one log group, read `/job-board/env/*`, and get/put/delete objects in its CV bucket.
 - **GitHub Terraform role** (`job-board-github-terraform`, used only by the pipeline's infrastructure job):
   - It is shared by production and staging, and trusts both the `main` and `staging` branches. A push to `staging` can therefore change production infrastructure too. For hard isolation, put staging in a separate AWS account, or give it its own bootstrap role scoped to `job-board-staging-*`.
   - It has `PowerUserAccess`, plus IAM limited to roles and instance profiles named `job-board-*`. That is broad: whoever controls `main` effectively controls most of the AWS account, so branch protection on `main` matters.
@@ -323,7 +323,7 @@ Other notes:
   - first deploys, a Caddy image change, and instance reboots or replacements all cause brief downtime;
   - long streaming responses on the old release are cut off by `docker stop` (30-second grace period) after the 5-second drain.
 - **Rollback depth is one.** Only the immediately previous release is kept on the host. A failed deploy uses up the standby slot. Older builds can be redeployed from ECR with `image_tag`.
-- **Data is local.** The Next.js cache and Caddy certificates live on this instance. The app has no database. If you add one, use a managed service such as RDS, not the instance disk.
+- **Data is local.** The Next.js cache and Caddy certificates live on this instance. Application data is not on the instance: records are in MongoDB (Atlas) and CVs in S3.
 - **OS patching** isn't automated beyond the first boot `dnf upgrade`. Replace the instance periodically (see "Upgrade the OS image" above) or add SSM Patch Manager.
 - **x86_64 only.** The AMI lookup and the image platform are `amd64`. ARM (`t4g`) instances would need an arm64 image and AMI.
 - **No `terraform plan` on pull requests.** PRs get only offline validation and tests, because giving PRs AWS access would need another read-only role. The plan is visible in the `main` run, just before it is applied.

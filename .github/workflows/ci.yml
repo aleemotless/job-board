@@ -16,8 +16,6 @@ jobs:
     timeout-minutes: 15
     env:
       NEXT_TELEMETRY_DISABLED: 1
-      # The build prerenders pages from MongoDB, and the smoke test serves them.
-      MONGODB_URI: ${{ secrets.MONGODB_URI }}
       # The smoke test renders the header, which reads the session. Throwaway value: it only
       # signs sessions inside this job. Real deployments read AUTH_SECRET from SSM.
       AUTH_SECRET: ci-smoke-test-only
@@ -37,7 +35,8 @@ jobs:
           PORT=3000 node .next/standalone/server.js > server.log 2>&1 &
           trap 'kill %1' EXIT
           curl -fsS --retry 15 --retry-connrefused --retry-delay 1 http://127.0.0.1:3000/api/health
-          curl -fsS -o /dev/null http://127.0.0.1:3000/ || { cat server.log; exit 1; }
+          # A page that needs no database: CI has none, and data pages render per request.
+          curl -fsS -o /dev/null http://127.0.0.1:3000/sign-in || { cat server.log; exit 1; }
 
   scripts:
     name: Shellcheck deploy scripts
@@ -83,6 +82,4 @@ jobs:
           platforms: linux/amd64
           push: false
           build-args: APP_VERSION=${{ github.sha }}
-          secrets: |
-            MONGODB_URI=${{ secrets.MONGODB_URI }}
           cache-from: type=gha

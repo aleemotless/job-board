@@ -46,7 +46,6 @@ jobs:
   checks:
     if: github.event_name == 'push' || (inputs.action == 'deploy' && inputs.image_tag == '')
     uses: ./.github/workflows/ci.yml
-    secrets: inherit # MONGODB_URI for the build
 
   infrastructure:
     name: Terraform plan & apply (${{ github.ref_name == 'main' && 'production' || 'staging' }})
@@ -205,8 +204,6 @@ jobs:
           provenance: false
           tags: ${{ steps.meta.outputs.image }}
           build-args: APP_VERSION=${{ steps.meta.outputs.version }}
-          secrets: |
-            MONGODB_URI=${{ secrets.MONGODB_URI }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

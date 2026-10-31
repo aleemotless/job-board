@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { getJobsWithApplicationCounts } from "@/lib/services/jobs";
 import { ButtonLink } from "@/components/common/button-link";
 import { SectionHeader } from "@/components/common/section-header";
@@ -9,6 +10,8 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminJobs() {
+    // Rendered per request, not at build time, so building the app never needs the database.
+    await connection();
     const jobs = await getJobsWithApplicationCounts();
 
     return (
