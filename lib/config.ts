@@ -23,6 +23,9 @@ export const SITE = {
 // Admin routes live under this prefix; the admin subdomain serves them without it (see proxy.ts).
 export const ADMIN_BASE_PATH = "/admin";
 
+export const SIGN_IN_PATH = "/sign-in";
+export const SIGN_UP_PATH = "/sign-up";
+
 export const SITE_NAV: NavItem[] = [
     { href: "/", label: "Home", exact: true },
     { href: "/jobs", label: "Jobs" },
@@ -71,6 +74,9 @@ export const APPLICATION_STATUSES = ["pending", "reviewing", "accepted", "reject
 // so "rejected" shows only when every application was rejected.
 export const CANDIDATE_STAGE_ORDER: readonly ApplicationStatus[] = ["accepted", "reviewing", "pending", "rejected"];
 
+// Public sign-up always creates a candidate.
+export const USER_ROLES = ["candidate", "admin"] as const;
+
 // --- Validation limits --------------------------------------------------
 // Apply to admin and public submissions alike; the public forms are unauthenticated.
 
@@ -85,6 +91,14 @@ export const JOB_TEXT_FIELDS = [
 ] as const;
 
 export const APPLICATION_FIELD_LIMITS = { name: 120, email: 254, coverLetter: 5000 } as const;
+
+// bcrypt ignores everything past 72 bytes, so longer passwords are rejected rather than silently cut.
+export const USER_FIELD_LIMITS = { name: 120, email: 254, passwordMin: 8, passwordMax: 72 } as const;
+
+// --- Auth ---------------------------------------------------------------
+
+// bcrypt cost factor for password hashes (each +1 doubles the hashing time).
+export const PASSWORD_HASH_ROUNDS = 12;
 
 // Loose shape check; the real check is whether the applicant answers.
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

@@ -7,7 +7,7 @@ import { FormField, useFormField } from "./form-field.client";
 
 type FormTextFieldProps = Omit<FormFieldProps, "children"> & {
     multiline?: boolean;
-    type?: "text" | "email";
+    type?: "text" | "email" | "password";
     autoComplete?: string;
 };
 
